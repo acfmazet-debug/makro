@@ -1,6 +1,8 @@
 -- =============================================================================
 -- View : PROD_SDP_UL_DAEF_REPORTING.DAEV.V_DIV_HIERARCHIE_MONATLICH
--- Quelle: PROD_SDP_AL_PERS.AL_DIV_SHARED.DIV_TBL_HIERARCHIE
+-- Quellen:
+--   PROD_SDP_AL_PERS.AL_DIV_SHARED.DIV_TBL_HIERARCHIE  (Basis)
+--   PROD_SDP_AL_PERS.AL_DIV_SHARED.DIV_TBL_ORGADATEN   (PTNAME via INSP/STICHTAG)
 --
 -- Zweck:
 --   Eine Zeile pro Vermittler (BO) pro Jahr (JAHR) und Monat (MONAT).
@@ -13,8 +15,8 @@
 --   - JAHR > '2016'
 --
 -- Logik:
---   1. Alle Tageszeilen filtern (WHERE)
---   2. Alle inhaltlichen Spalten gruppieren + Anzahl Tage zählen
+--   1. JOIN + Filter (gefiltert CTE)
+--   2. Alle inhaltlichen Spalten gruppieren + Anzahl Tage zählen (gezaehlt CTE)
 --   3. Pro BO/JAHR/MONAT die Gruppe mit den meisten Tagen behalten (QUALIFY)
 --
 -- Spaltenbehandlung:
@@ -25,7 +27,20 @@
 
 CREATE OR REPLACE VIEW PROD_SDP_UL_DAEF_REPORTING.DAEV.V_DIV_HIERARCHIE_MONATLICH AS
 
-WITH gezaehlt AS (
+WITH gefiltert AS (
+    -- Tageswerte aus HIERARCHIE mit PTNAME aus ORGADATEN anreichern
+    SELECT
+        a.*,
+        b.PTNAME
+    FROM PROD_SDP_AL_PERS.AL_DIV_SHARED.DIV_TBL_HIERARCHIE   a
+    LEFT JOIN PROD_SDP_AL_PERS.AL_DIV_SHARED.DIV_TBL_ORGADATEN b
+        ON  a.INSP     = b.ORGANR
+        AND a.STICHTAG = b.STICHTAG
+    WHERE a.VTWS IN ('11017', '11028', '11025', '11020', '11021', '11018', '11019')
+      AND a.JAHR > '2016'
+),
+
+gezaehlt AS (
     SELECT
         -- Zeitdimension
         JAHR,
@@ -149,7 +164,10 @@ WITH gezaehlt AS (
         FBCEB,            FBCEB_NAME,
         LMAB,             LMAB_NAME,
 
-        -- Tagesschlüssel: nicht aggregierbar, ANY_VALUE liefert einen Referenztag
+        -- Aus ORGADATEN (JOIN INSP = ORGANR AND STICHTAG = STICHTAG)
+        PTNAME,
+
+        -- Tagesschlüssel: ANY_VALUE liefert einen Referenztag der häufigsten Kombination
         ANY_VALUE(STICHTAG)    AS STICHTAG,
 
         -- Listenspalten (bis 16 MB, z.B. JSON-Arrays) – nicht sinnvoll gruppierbar
@@ -163,10 +181,7 @@ WITH gezaehlt AS (
         -- Anzahl Tage mit dieser exakten Kombination im Monat (Gewichtung)
         COUNT(*)               AS ANZ_TAGE
 
-    FROM PROD_SDP_AL_PERS.AL_DIV_SHARED.DIV_TBL_HIERARCHIE
-
-    WHERE VTWS IN ('11017', '11028', '11025', '11020', '11021', '11018', '11019')
-      AND JAHR > '2016'
+    FROM gefiltert
 
     GROUP BY
         -- Zeitdimension
@@ -261,7 +276,9 @@ WITH gezaehlt AS (
         RGB, RGB_NAME,
         FBOED, FBOED_NAME,
         FBCEB, FBCEB_NAME,
-        LMAB, LMAB_NAME
+        LMAB, LMAB_NAME,
+        -- Aus ORGADATEN
+        PTNAME
 )
 
 SELECT * EXCLUDE (ANZ_TAGE)
